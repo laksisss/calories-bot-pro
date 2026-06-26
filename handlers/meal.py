@@ -15,7 +15,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == user.id))
-        db_user = result.scalar_one()
+        db_user = result.scalar_one_or_none()
+        if not db_user:
+    await update.message.reply_text("❌ Сначала нажми /start")
+    return
         today = datetime.now().strftime("%Y-%m-%d")
         if db_user.last_request_date != today:
             db_user.daily_requests = 0
@@ -55,7 +58,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == user.id))
-        db_user = result.scalar_one()
+        db_user = result.scalar_one_or_none()
+        if not db_user:
+    await update.message.reply_text("❌ Сначала нажми /start")
+    return
         today = datetime.now().strftime("%Y-%m-%d")
         if db_user.last_request_date != today:
             db_user.daily_requests = 0
