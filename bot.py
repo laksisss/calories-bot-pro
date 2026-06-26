@@ -13,17 +13,38 @@ from handlers.profile import set_goal, show_goal
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+async def error_handler(update: object, context) -> None:
+    """Обработчик ошибок — чтобы бот не падал"""
+    logger.error(f"Ошибка: {context.error}", exc_info=context.error)
+    try:
+        if update and hasattr(update, 'effective_message') and update.effective_message:
+            await update.effective_message.reply_text(
+                "❌ Произошла ошибка. Попробуй ещё раз или нажми /start"
+            )
+    except Exception as e:
+        logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
+
 async def main():
     await init_db()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # Обработчики команд
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("today", stats_today))
     app.add_handler(CommandHandler("goal", set_goal))
     app.add_handler(CommandHandler("profile", show_goal))
+    
+    # Обработчики кнопок
     app.add_handler(CallbackQueryHandler(stats_today, pattern="stats_today"))
     app.add_handler(CallbackQueryHandler(show_goal, pattern="show_goal"))
+    
+    # Обработчики сообщений
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    # Обработчик ошибок (ВАЖНО!)
+    app.add_error_handler(error_handler)
+    
     logger.info("Бот запущен!")
     await app.initialize()
     await app.start()
