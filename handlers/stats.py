@@ -1,5 +1,5 @@
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes
 from sqlalchemy import select, func
 from database import async_session
@@ -9,8 +9,18 @@ async def stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     today = datetime.now().strftime("%Y-%m-%d")
     async with async_session() as session:
+        # Получаем пользователя
         result = await session.execute(select(User).where(User.telegram_id == user.id))
-        db_user = result.scalar_one()
+        db_user = result.scalar_one_or_none()
+        
+        if not db_user:
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ Сначала нажми /start")
+            else:
+                await update.message.reply_text("❌ Сначала нажми /start")
+            return
+        
+        # Получаем приемы пищи за сегодня
         result = await session.execute(
             select(func.sum(Meal.calories), func.sum(Meal.protein),
                    func.sum(Meal.fat), func.sum(Meal.carbs))
@@ -21,8 +31,16 @@ async def stats_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         protein = totals[1] or 0
         fat = totals[2] or 0
         carbs = totals[3] or 0
+        
+        # Получаем цель (создаем если нет)
         result = await session.execute(select(Goal).where(Goal.user_id == db_user.id))
-        goal = result.scalar_one()
+        goal = result.scalar_one_or_none()
+        
+        if not goal:
+            goal = Goal(user_id=db_user.id)
+            session.add(goal)
+            await session.commit()
+        
         progress = min(100, int((calories / goal.calories) * 100)) if goal.calories else 0
         text = (
             f"📊 Сегодня\n\n"
