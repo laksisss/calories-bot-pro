@@ -1,50 +1,56 @@
-import anthropic
+from groq import Groq
 import json
-from config import ANTHROPIC_API_KEY, CLAUDE_TEXT_MODEL, CLAUDE_VISION_MODEL
+from config import GROQ_API_KEY
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = Groq(api_key=GROQ_API_KEY)
 
 async def analyze_text_meal(text: str):
-    prompt = f"""Проанализируй описание еды и верни JSON с КБЖУ.
+    prompt = f"""Ты эксперт по питанию. Проанализируй описание еды и верни ТОЛЬКО JSON.
+
 Описание: {text}
-Верни JSON в формате:
-{{"name": "название", "weight": 100, "calories": 250, "protein": 15, "fat": 8, "carbs": 30}}
-"""
-    message = client.messages.create(
-        model=CLAUDE_TEXT_MODEL,
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}]
-    )
+
+Верни JSON БЕЗ пояснений:
+{{
+    "name": "название блюда",
+    "weight": 100,
+    "calories": 250,
+    "protein": 15,
+    "fat": 8,
+    "carbs": 30
+}}
+
+Если несколько продуктов - верни массив объектов."""
+    
     try:
-        response = message.content[0].text
-        start = response.find('{')
-        end = response.rfind('}') + 1
+        response = client.chat.completions.create(
+            model="llama-3.1-70b-versatile",
+            messages=[
+                {"role": "system", "content": "Ты помощник по питанию. Отвечай только JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        
+        text_response = response.choices[0].message.content.strip()
+        
+        if '[' in text_response:
+            start = text_response.find('[')
+            end = text_response.rfind(']') + 1
+        else:
+            start = text_response.find('{')
+            end = text_response.rfind('}') + 1
+        
         if start != -1 and end != 0:
-            return json.loads(response[start:end])
-    except:
-        pass
+            data = json.loads(text_response[start:end])
+            if isinstance(data, list):
+                return data[0] if data else None
+            return data
+    except Exception as e:
+        print(f"Groq error: {e}")
+    
     return None
 
-async def analyze_photo(image_base64: str, media_type: str = "image/jpeg"):
-    prompt = """Определи блюдо на фото, вес порции и КБЖУ.
-Верни JSON: {"name": "название", "weight": 250, "calories": 450, "protein": 25, "fat": 18, "carbs": 45}"""
-    message = client.messages.create(
-        model=CLAUDE_VISION_MODEL,
-        max_tokens=1000,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
-                {"type": "text", "text": prompt}
-            ]
-        }]
-    )
-    try:
-        response = message.content[0].text
-        start = response.find('{')
-        end = response.rfind('}') + 1
-        if start != -1 and end != 0:
-            return json.loads(response[start:end])
-    except:
-        pass
+async def analyze_photo(image_bytes: bytes):
+    print("Анализ фото временно недоступен")
     return None
