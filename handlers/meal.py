@@ -1,4 +1,3 @@
-import base64
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -16,10 +15,11 @@ MEAL_TYPES = {
     "breakfast": "🌅 Завтрак",
     "lunch": "🍽 Обед",
     "dinner": "🌙 Ужин",
-    "snack": " Перекус"
+    "snack": "🍎 Перекус"
 }
 
 def split_food_items(text: str) -> list:
+    """Разбиваем текст на отдельные продукты"""
     items = [line.strip() for line in text.split('\n') if line.strip()]
     if len(items) == 1 and ',' in text:
         items = [item.strip() for item in text.split(',') if item.strip()]
@@ -48,7 +48,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         food_items = split_food_items(text)
         
         if len(food_items) > 1:
-            # Сохраняем текст в памяти бота (не в callback_data!)
+            # Сохраняем текст в памяти бота (НЕ в callback_data!)
             context.user_data['pending_food'] = text
             context.user_data['food_count'] = len(food_items)
             
@@ -57,14 +57,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton(v, callback_data=f"meal_{k}")]
                 for k, v in MEAL_TYPES.items()
             ]
+            
+            # Показываем список продуктов
+            items_text = "\n".join(f"• {item}" for item in food_items)
             await update.message.reply_text(
-                f" Найдено продуктов: {len(food_items)}\n\n" +
-                "\n".join(f"• {item}" for item in food_items) +
-                "\n\nВыбери прием пищи:",
+                f" Найдено продуктов: {len(food_items)}\n\n{items_text}\n\nВыбери прием пищи:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return SELECT_MEAL_TYPE
         
+        # Один продукт — обрабатываем сразу
         await process_single_food(update, session, db_user, today, food_items[0])
         return ConversationHandler.END
 
@@ -76,7 +78,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await session.execute(select(User).where(User.telegram_id == user.id))
         db_user = result.scalar_one_or_none()
         if not db_user:
-            await update.message.reply_text("❌ Сначала нажми /start")
+            await update.message.reply_text(" Сначала нажми /start")
             return
         
         today = datetime.now().strftime("%Y-%m-%d")
@@ -88,7 +90,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Лимит исчерпан")
             return
         
-        msg = await update.message.reply_text("📸 Анализирую фото через ИИ...")
+        msg = await update.message.reply_text("📸 Анализирую фото...")
         
         file = await context.bot.get_file(photo.file_id)
         image_bytes = await file.download_as_bytearray()
@@ -108,14 +110,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         
         await msg.edit_text(
-            f"🍽 {meal_data['name']}\n"
-            f"⚖️ {meal_data['weight']}г\n"
-            f" {meal_data['calories']} ккал\n\n"
-            "Выбери прием пищи:",
+            f"🍽 {meal_data['name']}\n⚖️ {meal_data['weight']}г\n🔥 {meal_data['calories']} ккал\n\nВыбери прием пищи:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка выбора типа приема пищи"""
     query = update.callback_query
     await query.answer()
     
@@ -167,7 +167,7 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data.pop('pending_food', None)
             context.user_data.pop('food_count', None)
             
-            response = f" Добавлено в {MEAL_TYPES[meal_type]}:\n\n"
+            response = f"📊 Добавлено в {MEAL_TYPES[meal_type]}:\n\n"
             if results:
                 response += "\n".join(results)
                 response += f"\n\n🔥 Всего: {total_calories} ккал"
@@ -179,7 +179,7 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif data[0] == "photo":
             meal_data = context.user_data.get('pending_photo')
             if not meal_data:
-                await query.edit_message_text(" Данные устарели. Отправь фото заново.")
+                await query.edit_message_text("❌ Данные устарели. Отправь фото заново.")
                 return
             
             meal = Meal(
@@ -198,11 +198,12 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"✅ Добавлено в {MEAL_TYPES[meal_type]}:\n\n"
                 f"🍽 {meal_data['name']}\n"
                 f"⚖️ {meal_data['weight']}г\n"
-                f"🔥 {meal_data['calories']} ккал\n"
-                f"🥩 Б: {meal_data['protein']}г |  Ж: {meal_data['fat']}г | 🍞 У: {meal_data['carbs']}г"
+                f" {meal_data['calories']} ккал\n"
+                f" Б: {meal_data['protein']}г |  Ж: {meal_data['fat']}г | 🍞 У: {meal_data['carbs']}г"
             )
 
 async def process_single_food(update, session, db_user, today, text):
+    """Обработка одного продукта"""
     meal_data = find_in_local_db(text)
     
     if not meal_data:
@@ -217,7 +218,7 @@ async def process_single_food(update, session, db_user, today, text):
                 await set_cached_result(session, cache_key, meal_data)
         
         if not meal_data:
-            await msg.edit_text(f" Не удалось распознать '{text}'. Попробуй указать вес иначе.")
+            await msg.edit_text(f"❌ Не удалось распознать '{text}'. Попробуй указать вес иначе.")
             return
         
         await msg.delete()
@@ -235,6 +236,6 @@ async def process_single_food(update, session, db_user, today, text):
     await update.message.reply_text(
         f"✅ {meal_data['name']}\n"
         f"⚖️ {meal_data['weight']}г\n"
-        f"🔥 {meal_data['calories']} ккал\n"
-        f"🥩 Б: {meal_data['protein']}г | 🥑 Ж: {meal_data['fat']}г | 🍞 У: {meal_data['carbs']}г"
+        f" {meal_data['calories']} ккал\n"
+        f"🥩 Б: {meal_data['protein']}г | 🥑 Ж: {meal_data['fat']}г |  У: {meal_data['carbs']}г"
     )
