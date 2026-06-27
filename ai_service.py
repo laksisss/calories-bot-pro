@@ -1,9 +1,8 @@
-from groq import AsyncGroq
+from groq import Groq
 import json
 from config import GROQ_API_KEY
 
-# Асинхронный клиент - не блокирует бота!
-client = AsyncGroq(api_key=GROQ_API_KEY)
+client = Groq(api_key=GROQ_API_KEY)
 
 async def analyze_text_meal(text: str):
     """Анализ текста через Groq Llama 3 (бесплатно)"""
@@ -19,15 +18,13 @@ async def analyze_text_meal(text: str):
     "protein": 15,
     "fat": 8,
     "carbs": 30
-}}
-
-Если несколько продуктов - верни массив объектов."""
+}}"""
     
     try:
-        response = await client.chat.completions.create(
+        response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": "Ты помощник по питанию. Отвечай только валидным JSON без пояснений и markdown."},
+                {"role": "system", "content": "Отвечай только валидным JSON без markdown."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
@@ -35,9 +32,8 @@ async def analyze_text_meal(text: str):
         )
         
         text_response = response.choices[0].message.content.strip()
-        print(f"Groq response: {text_response}")
         
-        # Убираем markdown-обёртки если есть
+        # Убираем markdown если есть
         if text_response.startswith("```"):
             text_response = text_response.split("```")[1]
             if text_response.startswith("json"):
@@ -45,24 +41,16 @@ async def analyze_text_meal(text: str):
             text_response = text_response.strip()
         
         # Извлекаем JSON
-        if '[' in text_response:
-            start = text_response.find('[')
-            end = text_response.rfind(']') + 1
-        else:
-            start = text_response.find('{')
-            end = text_response.rfind('}') + 1
-        
+        start = text_response.find('{')
+        end = text_response.rfind('}') + 1
         if start != -1 and end != 0:
-            data = json.loads(text_response[start:end])
-            if isinstance(data, list):
-                return data[0] if data else None
-            return data
+            return json.loads(text_response[start:end])
     except Exception as e:
         print(f"Groq error: {e}")
     
     return None
 
 async def analyze_photo(image_bytes: bytes):
-    """Заглушка для фото - Groq пока не поддерживает Vision"""
+    """Заглушка — Groq пока не поддерживает Vision"""
     print("Анализ фото временно недоступен")
     return None
