@@ -10,25 +10,19 @@ from ai_service import analyze_text_meal, analyze_photo
 from cache import get_cached_result, set_cached_result, get_image_hash, get_text_hash
 from config import FREE_DAILY_LIMIT
 
-# Состояние для диалога выбора приема пищи
 SELECT_MEAL_TYPE = 1
 
 MEAL_TYPES = {
     "breakfast": "🌅 Завтрак",
     "lunch": "🍽 Обед",
     "dinner": "🌙 Ужин",
-    "snack": "🍎 Перекус"
+    "snack": " Перекус"
 }
 
 def split_food_items(text: str) -> list:
-    """Разбиваем текст на отдельные продукты"""
-    # Сначала по переносам строк
     items = [line.strip() for line in text.split('\n') if line.strip()]
-    
-    # Если одна строка - пробуем разбить по запятым
     if len(items) == 1 and ',' in text:
         items = [item.strip() for item in text.split(',') if item.strip()]
-    
     return items
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -51,24 +45,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Лимит 10 запросов/день исчерпан")
             return ConversationHandler.END
         
-        # Разбиваем на отдельные продукты
         food_items = split_food_items(text)
         
         if len(food_items) > 1:
-            # Несколько продуктов - показываем кнопки выбора приема пищи
+            # Сохраняем текст в памяти бота (не в callback_data!)
+            context.user_data['pending_food'] = text
+            context.user_data['food_count'] = len(food_items)
+            
+            # Короткие callback_data — только тип приёма пищи
             keyboard = [
-                [InlineKeyboardButton(v, callback_data=f"multi_{k}_{text.replace(chr(10), '|').replace(',', ';')}")]
+                [InlineKeyboardButton(v, callback_data=f"meal_{k}")]
                 for k, v in MEAL_TYPES.items()
             ]
             await update.message.reply_text(
-                f"📝 Найдено продуктов: {len(food_items)}\n\n" +
+                f" Найдено продуктов: {len(food_items)}\n\n" +
                 "\n".join(f"• {item}" for item in food_items) +
                 "\n\nВыбери прием пищи:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return SELECT_MEAL_TYPE
         
-        # Один продукт - обрабатываем сразу
         await process_single_food(update, session, db_user, today, food_items[0])
         return ConversationHandler.END
 
@@ -103,22 +99,23 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text("❌ Не удалось распознать блюдо. Попробуй описать текстом.")
             return
         
-        # Показываем результат и спрашиваем прием пищи
+        # Сохраняем данные фото в памяти
+        context.user_data['pending_photo'] = meal_data
+        
         keyboard = [
-            [InlineKeyboardButton(v, callback_data=f"photo_{k}_{meal_data['name']}_{meal_data['weight']}_{meal_data['calories']}_{meal_data['protein']}_{meal_data['fat']}_{meal_data['carbs']}")]
+            [InlineKeyboardButton(v, callback_data=f"photo_{k}")]
             for k, v in MEAL_TYPES.items()
         ]
         
         await msg.edit_text(
             f"🍽 {meal_data['name']}\n"
             f"⚖️ {meal_data['weight']}г\n"
-            f"🔥 {meal_data['calories']} ккал\n\n"
+            f" {meal_data['calories']} ккал\n\n"
             "Выбери прием пищи:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора типа приема пищи"""
     query = update.callback_query
     await query.answer()
     
@@ -133,10 +130,14 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         today = datetime.now().strftime("%Y-%m-%d")
         
-        if data[0] == "multi":
-            # Несколько продуктов из текста
-            text = "_".join(data[2:]).replace("|", "\n").replace(";", ",")
+        if data[0] == "meal":
+            text = context.user_data.get('pending_food', '')
+            if not text:
+                await query.edit_message_text("❌ Данные устарели. Напиши продукты заново.")
+                return
+            
             food_items = split_food_items(text)
+            food_count = context.user_data.get('food_count', len(food_items))
             
             total_calories = 0
             results = []
@@ -144,8 +145,6 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             for food in food_items:
                 meal_data = find_in_local_db(food)
-                
-                # Если не нашли в базе - спрашиваем ИИ
                 if not meal_data:
                     meal_data = await analyze_text_meal(food)
                 
@@ -162,10 +161,13 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     errors.append(f"❌ {food}")
             
-            db_user.daily_requests += len(food_items)
+            db_user.daily_requests += food_count
             await session.commit()
             
-            response = f"📊 Добавлено в {MEAL_TYPES[meal_type]}:\n\n"
+            context.user_data.pop('pending_food', None)
+            context.user_data.pop('food_count', None)
+            
+            response = f" Добавлено в {MEAL_TYPES[meal_type]}:\n\n"
             if results:
                 response += "\n".join(results)
                 response += f"\n\n🔥 Всего: {total_calories} ккал"
@@ -175,15 +177,10 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text(response)
         
         elif data[0] == "photo":
-            # Фото
-            meal_data = {
-                "name": data[2],
-                "weight": float(data[3]),
-                "calories": float(data[4]),
-                "protein": float(data[5]),
-                "fat": float(data[6]),
-                "carbs": float(data[7])
-            }
+            meal_data = context.user_data.get('pending_photo')
+            if not meal_data:
+                await query.edit_message_text(" Данные устарели. Отправь фото заново.")
+                return
             
             meal = Meal(
                 user_id=db_user.id, date=today, name=meal_data["name"],
@@ -195,19 +192,19 @@ async def meal_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             db_user.daily_requests += 1
             await session.commit()
             
+            context.user_data.pop('pending_photo', None)
+            
             await query.edit_message_text(
                 f"✅ Добавлено в {MEAL_TYPES[meal_type]}:\n\n"
                 f"🍽 {meal_data['name']}\n"
                 f"⚖️ {meal_data['weight']}г\n"
                 f"🔥 {meal_data['calories']} ккал\n"
-                f"🥩 Б: {meal_data['protein']}г | 🥑 Ж: {meal_data['fat']}г | 🍞 У: {meal_data['carbs']}г"
+                f"🥩 Б: {meal_data['protein']}г |  Ж: {meal_data['fat']}г | 🍞 У: {meal_data['carbs']}г"
             )
 
 async def process_single_food(update, session, db_user, today, text):
-    """Обработка одного продукта"""
     meal_data = find_in_local_db(text)
     
-    # Если не нашли в локальной базе - спрашиваем ИИ
     if not meal_data:
         msg = await update.message.reply_text(f"🤔 Ищу '{text}' через ИИ...")
         cache_key = f"text_{get_text_hash(text)}"
@@ -220,12 +217,11 @@ async def process_single_food(update, session, db_user, today, text):
                 await set_cached_result(session, cache_key, meal_data)
         
         if not meal_data:
-            await msg.edit_text(f"❌ Не удалось распознать '{text}'. Попробуй указать вес иначе.")
+            await msg.edit_text(f" Не удалось распознать '{text}'. Попробуй указать вес иначе.")
             return
         
         await msg.delete()
     
-    # Сохраняем как перекус по умолчанию
     meal = Meal(
         user_id=db_user.id, date=today, name=meal_data["name"],
         weight=meal_data["weight"], calories=meal_data["calories"],
