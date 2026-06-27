@@ -1,15 +1,17 @@
-from groq import Groq
+from groq import AsyncGroq
 import json
 from config import GROQ_API_KEY
 
-client = Groq(api_key=GROQ_API_KEY)
+# Асинхронный клиент - не блокирует бота!
+client = AsyncGroq(api_key=GROQ_API_KEY)
 
 async def analyze_text_meal(text: str):
-    prompt = f"""Ты эксперт по питанию. Проанализируй описание еды и верни ТОЛЬКО JSON.
+    """Анализ текста через Groq Llama 3 (бесплатно)"""
+    prompt = f"""Ты эксперт по питанию. Проанализируй описание еды и верни ТОЛЬКО JSON без пояснений.
 
 Описание: {text}
 
-Верни JSON БЕЗ пояснений:
+Верни JSON в формате:
 {{
     "name": "название блюда",
     "weight": 100,
@@ -22,10 +24,10 @@ async def analyze_text_meal(text: str):
 Если несколько продуктов - верни массив объектов."""
     
     try:
-        response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system", "content": "Ты помощник по питанию. Отвечай только JSON."},
+                {"role": "system", "content": "Ты помощник по питанию. Отвечай только валидным JSON без пояснений и markdown."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
@@ -33,7 +35,16 @@ async def analyze_text_meal(text: str):
         )
         
         text_response = response.choices[0].message.content.strip()
+        print(f"Groq response: {text_response}")
         
+        # Убираем markdown-обёртки если есть
+        if text_response.startswith("```"):
+            text_response = text_response.split("```")[1]
+            if text_response.startswith("json"):
+                text_response = text_response[4:]
+            text_response = text_response.strip()
+        
+        # Извлекаем JSON
         if '[' in text_response:
             start = text_response.find('[')
             end = text_response.rfind(']') + 1
@@ -52,5 +63,6 @@ async def analyze_text_meal(text: str):
     return None
 
 async def analyze_photo(image_bytes: bytes):
+    """Заглушка для фото - Groq пока не поддерживает Vision"""
     print("Анализ фото временно недоступен")
     return None
