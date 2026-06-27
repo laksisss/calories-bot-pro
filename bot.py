@@ -15,12 +15,17 @@ logger = logging.getLogger(__name__)
 
 async def error_handler(update: object, context) -> None:
     logger.error(f"Ошибка: {context.error}", exc_info=context.error)
+    try:
+        if update and hasattr(update, 'effective_message') and update.effective_message:
+            await update.effective_message.reply_text("❌ Произошла ошибка. Попробуй ещё раз или нажми /start")
+    except:
+        pass
 
 async def main():
     await init_db()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # Conversation handler
+    # per_user=True + per_chat=True — чтобы context.user_data работал для каждого пользователя отдельно
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text),
@@ -29,7 +34,14 @@ async def main():
         states={
             SELECT_MEAL_TYPE: [CallbackQueryHandler(meal_type_callback)]
         },
-        fallbacks=[]
+        fallbacks=[
+            CommandHandler("start", start_command),
+            CommandHandler("today", stats_today),
+            CommandHandler("goal", set_goal),
+            CommandHandler("profile", show_goal),
+        ],
+        per_user=True,
+        per_chat=True,
     )
     
     app.add_handler(conv_handler)
