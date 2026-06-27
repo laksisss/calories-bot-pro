@@ -18,6 +18,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 Статистика за день", callback_data="stats_today")],
         [InlineKeyboardButton("🎯 Моя цель", callback_data="show_goal")],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")],
     ]
     await update.message.reply_text(
         f"👋 Привет, {user.first_name}!\n\n"
