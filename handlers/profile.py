@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from sqlalchemy import select
 from database import async_session
@@ -48,8 +48,18 @@ async def show_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 goal = Goal(user_id=db_user.id)
                 session.add(goal)
                 await session.commit()
-            text = f"🎯 Цель:\n🔥 {goal.calories:.0f} ккал\n🥩 {goal.protein:.0f}г\n🥑 {goal.fat:.0f}г\n🍞 {goal.carbs:.0f}г"
+            text = f" Цель:\n🔥 {goal.calories:.0f} ккал\n🥩 {goal.protein:.0f}г\n🥑 {goal.fat:.0f}г\n {goal.carbs:.0f}г"
+    
+    # Добавляем кнопку возврата
+    keyboard = [[InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]]
+    
     if update.callback_query:
-        await update.callback_query.edit_message_text(text)
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     else:
-        await update.message.reply_text(text)
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
