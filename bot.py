@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def error_handler(update: object, context) -> None:
-    """Обработчик ошибок"""
     logger.error(f"Ошибка: {context.error}", exc_info=context.error)
     try:
         if update and hasattr(update, 'effective_message') and update.effective_message:
@@ -26,7 +25,7 @@ async def main():
     await init_db()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # ConversationHandler с per_message=True
+    # ConversationHandler БЕЗ per_message (по умолчанию False)
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text),
@@ -41,7 +40,6 @@ async def main():
             CommandHandler("goal", set_goal),
             CommandHandler("profile", show_goal),
         ],
-        per_message=True,  # ← ВАЖНО!
     )
     
     app.add_handler(conv_handler)
